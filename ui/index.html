@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orchestrator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; font-size: 14px; background: #fff; color: #111; }
+
+  header { padding: 16px 24px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 15px; font-weight: 600; }
+  header span { font-size: 12px; color: #888; }
+
+  .bar { padding: 16px 24px; border-bottom: 1px solid #e5e5e5; display: flex; gap: 8px; }
+  .bar input { flex: 1; padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; outline: none; }
+  .bar input:focus { border-color: #333; }
+  .bar button { padding: 8px 18px; background: #111; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  .bar button:hover { background: #333; }
+  .bar button:disabled { background: #aaa; cursor: not-allowed; }
+
+  .layout { display: grid; grid-template-columns: 1fr 280px; height: calc(100vh - 105px); }
+
+  .answer { padding: 24px; overflow-y: auto; }
+  .answer .placeholder { color: #aaa; margin-top: 60px; text-align: center; font-size: 13px; }
+
+  .meta { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; font-size: 12px; color: #666; }
+  .badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .badge-high         { background: #d1fae5; color: #065f46; }
+  .badge-medium       { background: #fef3c7; color: #92400e; }
+  .badge-low          { background: #fee2e2; color: #991b1b; }
+  .badge-insufficient { background: #fee2e2; color: #991b1b; }
+
+  .caveat { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: #78350f; }
+
+  .answer-text { font-size: 14px; line-height: 1.8; color: #222; white-space: pre-wrap; word-break: break-word; }
+  .answer-text a { color: #2563eb; text-decoration: none; font-size: 11px; vertical-align: super; }
+  .answer-text a:hover { text-decoration: underline; }
+
+  .sources { margin-top: 28px; }
+  .sources h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 10px; }
+  .source { padding: 10px 0; border-top: 1px solid #f0f0f0; }
+  .source-title { font-size: 13px; font-weight: 500; }
+  .source-url { font-size: 11px; color: #2563eb; text-decoration: none; display: block; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .source-url:hover { text-decoration: underline; }
+  .source-score { font-size: 11px; color: #aaa; margin-top: 2px; }
+
+  .trace { border-left: 1px solid #e5e5e5; display: flex; flex-direction: column; overflow: hidden; background: #fafafa; }
+  .trace-title { padding: 12px 16px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #888; border-bottom: 1px solid #e5e5e5; }
+  .trace-list { flex: 1; overflow-y: auto; }
+  .step { padding: 9px 16px; border-bottom: 1px solid #f0f0f0; display: flex; gap: 8px; align-items: flex-start; }
+  .step-icon { font-size: 12px; margin-top: 1px; width: 14px; flex-shrink: 0; }
+  .icon-pending { color: #ccc; }
+  .icon-running { color: #f59e0b; }
+  .icon-done    { color: #10b981; }
+  .icon-fail    { color: #ef4444; }
+  .icon-info    { color: #6366f1; }
+  .step-desc { font-size: 12px; color: #333; line-height: 1.35; }
+  .step-meta { font-size: 11px; color: #aaa; margin-top: 2px; }
+  .step-tag { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 10px; margin-right: 4px; }
+
+  .trace-stats { border-top: 1px solid #e5e5e5; padding: 12px 16px; font-size: 12px; display: none; flex-direction: column; gap: 4px; }
+  .stats-row { display: flex; justify-content: space-between; color: #666; }
+  .stats-row strong { color: #111; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Orchestrator</h1>
+  <span>MiniMax · Serper · RAG</span>
+</header>
+
+<div class="bar">
+  <input id="q" type="text" placeholder="Ask a research question…" autocomplete="off" />
+  <button id="btn" onclick="run()">Run</button>
+</div>
+
+<div class="layout">
+  <div class="answer" id="answer">
+    <p class="placeholder">Enter a research question and click Run.</p>
+  </div>
+  <div class="trace">
+    <div class="trace-title">Trace</div>
+    <div class="trace-list" id="trace"></div>
+    <div class="trace-stats" id="stats">
+      <div class="stats-row"><span>Duration</span><strong id="sDur">—</strong></div>
+      <div class="stats-row"><span>Fetched</span><strong id="sFetch">—</strong></div>
+      <div class="stats-row"><span>Used</span><strong id="sUsed">—</strong></div>
+      <div class="stats-row"><span>Steps</span><strong id="sSteps">—</strong></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const qEl     = document.getElementById('q');
+const btn     = document.getElementById('btn');
+const answer  = document.getElementById('answer');
+const traceEl = document.getElementById('trace');
+const stats   = document.getElementById('stats');
+
+let t0 = 0, steps = {}, done = false, n = 0;
+
+qEl.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+
+async function run() {
+  const q = qEl.value.trim();
+  if (!q) return;
+
+  btn.disabled = true;
+  t0 = Date.now(); done = false; n = 0;
+  steps = {};
+  traceEl.innerHTML = '';
+  stats.style.display = 'none';
+  answer.innerHTML = '<p style="color:#aaa;margin-top:60px;text-align:center">Researching…</p>';
+
+  steps['planner'] = addStep('planner', 'running', 'plan', 'Planning steps…', '');
+
+  try {
+    const res = await fetch('/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q, topK: 5 })
+    });
+    if (!res.ok) { showErr(`Server error ${res.status}`); btn.disabled = false; return; }
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done: d, value } = await reader.read();
+      if (d) break;
+      buf += dec.decode(value, { stream: true });
+      const frames = buf.split("\n\n");
+      buf = frames.pop() ?? '';
+      for (const f of frames) {
+        if (!f.trim()) continue;
+        const em = f.match(/^event: (.+)$/m);
+        const en = em ? em[1].trim() : 'message';
+        const ds = f.split("\n").filter(l => l.startsWith('data: ')).map(l => l.slice(6)).join('');
+        if (!ds) continue;
+        let data; try { data = JSON.parse(ds); } catch { continue; }
+        onEvent(en, data);
+      }
+    }
+  } catch(e) { showErr(e.message); }
+
+  if (!done) {
+    for (const el of Object.values(steps)) {
+      const ic = el.querySelector('.step-icon');
+      if (ic && ic.classList.contains('icon-running')) setStep(el, 'fail', 'interrupted');
+    }
+  }
+  btn.disabled = false;
+}
+
+function onEvent(name, data) {
+  if (name === 'progress') onProgress(data);
+  else if (name === 'done') onDone(data);
+  else if (name === 'error') showErr(data.message ?? 'Error');
+}
+
+function onProgress(e) {
+  if (e.type === 'token') { onToken(e.message ?? ''); return; }
+  switch (e.type) {
+    case 'plan': {
+      const pl = steps['planner'];
+      if (pl) setStep(pl, 'done', `${Date.now()-t0}ms`);
+      if (Array.isArray(e.data)) {
+        for (const s of e.data) {
+          if (s.type === 'synthesize') continue;
+          if (!steps[s.id]) steps[s.id] = addStep(s.id, 'pending', s.type, s.description, 'queued');
+        }
+      }
+      break;
+    }
+    case 'step:start': {
+      const ex = steps[e.stepId];
+      if (ex) setStep(ex, 'running', '');
+      else steps[e.stepId] = addStep(e.stepId, 'running', e.stepType, e.description ?? e.stepId, '');
+      break;
+    }
+    case 'step:done': { const el = steps[e.stepId]; if (el) setStep(el, 'done', `${e.durationMs}ms`); break; }
+    case 'step:fail': { const el = steps[e.stepId]; if (el) setStep(el, 'fail', (e.message ?? 'failed').slice(0,40)); break; }
+    case 'rank': {
+      const el = addStep('__r__', 'info', 'rank', e.message ?? 'Ranking snippets', '');
+      steps['__r__'] = el;
+      setTimeout(() => setStep(el, 'done', ''), 100);
+      break;
+    }
+    case 'synthesize:start':
+      steps['__s__'] = addStep('__s__', 'running', 'synthesize', 'Synthesizing answer', '');
+      break;
+  }
+}
+
+function onToken(token) {
+  streamBuffer += token;
+  if (!streamingStarted) {
+    streamingStarted = true;
+    // Replace the "Researching..." placeholder with a live answer div
+    answerCol.innerHTML = '<div class="answer-body" id="streamText" style="white-space:pre-wrap;word-break:break-word;line-height:1.8;color:#222"></div>';
+  }
+  const el = document.getElementById('streamText');
+  if (el) {
+    // Strip <meta>...</meta> block from displayed text as it streams in
+    const display = streamBuffer.replace(/<meta>[\s\S]*$/, '').replace(/<meta>$/, '');
+    el.innerHTML = renderText(display) + '<span style="display:inline-block;width:2px;height:14px;background:#333;vertical-align:text-bottom;animation:blink 1s step-end infinite;margin-left:1px"></span>';
+  }
+}
+
+function onDone(out) {
+  done = true;
+  const ms = Date.now() - t0;
+  const se = steps['__s__'];
+  if (se) setStep(se, 'done', `${ms}ms`);
+
+  const conf = out.confidence ?? 'medium';
+  let html = `<div class="meta">
+    <span class="badge badge-${conf}">${conf}</span>
+    <span>${ms}ms · ${out.trace.snippetsRetrieved} fetched · ${out.trace.snippetsUsed} used</span>
+  </div>`;
+
+  if (out.caveat) html += `<div class="caveat">⚠ ${esc(out.caveat)}</div>`;
+
+  html += `<div class="answer-text">${renderText(out.answer)}</div>`;
+
+  if (out.citations?.length) {
+    html += `<div class="sources"><h3>Sources</h3>`;
+    for (const c of out.citations) {
+      let domain = c.url; try { domain = new URL(c.url).hostname.replace('www.',''); } catch {}
+      html += `<div class="source" id="c${c.index}">
+        <div class="source-title">[${c.index}] ${esc(c.title || 'Untitled')}</div>
+        <a class="source-url" href="${esc(c.url)}" target="_blank">${esc(domain)}</a>
+        <div class="source-score">relevance ${c.relevanceScore.toFixed(3)}</div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  answer.innerHTML = html;
+  answer.scrollTop = 0;
+
+  const t = out.trace;
+  document.getElementById('sDur').textContent   = `${ms}ms`;
+  document.getElementById('sFetch').textContent = t.snippetsRetrieved;
+  document.getElementById('sUsed').textContent  = t.snippetsUsed;
+  document.getElementById('sSteps').textContent = t.results?.length ?? '—';
+  stats.style.display = 'flex';
+}
+
+const ICON  = { running:'○', done:'✓', fail:'✗', info:'·', pending:'·' };
+const ICLS  = { running:'icon-running', done:'icon-done', fail:'icon-fail', info:'icon-info', pending:'icon-pending' };
+
+function addStep(id, status, tag, desc, time) {
+  n++;
+  const el = document.createElement('div');
+  el.className = 'step'; el.dataset.id = id;
+  el.innerHTML = `<div class="step-icon ${ICLS[status]??'icon-pending'}">${ICON[status]??'·'}</div>
+    <div>
+      <div class="step-desc">${esc(desc)}</div>
+      <div class="step-meta">${tag?`<span class="step-tag">${esc(tag)}</span>`:''}
+        <span class="step-time">${time??''}</span>
+      </div>
+    </div>`;
+  traceEl.appendChild(el);
+  traceEl.scrollTop = traceEl.scrollHeight;
+  return el;
+}
+
+function setStep(el, status, time) {
+  const ic = el.querySelector('.step-icon');
+  if (!ic) return;
+  ic.className = `step-icon ${ICLS[status]??'icon-pending'}`;
+  ic.textContent = ICON[status] ?? '·';
+  const t = el.querySelector('.step-time');
+  if (t && time !== undefined) t.textContent = time;
+}
+
+function renderText(text) {
+  return esc(text).replace(/\[(\d+)\]/g, (_, n) =>
+    `<a href="#c${n}" onclick="jump(event,${n})">[${n}]</a>`
+  );
+}
+function jump(e, n) { e.preventDefault(); document.getElementById('c'+n)?.scrollIntoView({behavior:'smooth',block:'center'}); }
+function showErr(msg) { answer.innerHTML = `<p style="color:#ef4444;padding:20px">${esc(msg)}</p>`; btn.disabled = false; }
+function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>
